@@ -148,9 +148,6 @@ def test_ui_action_uses_control_channel(monkeypatch, tmp_path, control_file, fak
 
             return ControlChannel(read_endpoint(control_file))
 
-        def invalidate_control_channel(self):
-            pass
-
     monkeypatch.setattr(capability_dispatch, "_server", lambda: FakeServer())
 
     result = dispatch("ui_screenshot", {"page": 1})

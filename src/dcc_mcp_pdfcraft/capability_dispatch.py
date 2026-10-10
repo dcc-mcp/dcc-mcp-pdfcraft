@@ -74,9 +74,9 @@ def _dispatch_ui(action_name: str, params: dict[str, Any]) -> dict[str, Any]:
     try:
         result = channel.call(method, params)
     except ControlChannelUnavailable as exc:
-        # The port is random per app start, so a stale channel is the common
-        # failure after a restart rather than a rare one.
-        _server().invalidate_control_channel()
+        # The channel is rebuilt per call and the port is read from the control
+        # file each time, so there is no stale state to clear here: report the
+        # failure as-is.
         raise ActionError(str(exc)) from exc
     return {"action": action_name, "method": method, "result": result}
 

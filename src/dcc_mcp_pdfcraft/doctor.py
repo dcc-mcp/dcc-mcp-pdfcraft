@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Any
 
 from .control_channel import ControlChannelUnavailable, read_endpoint
-from .host import APP_BINARY, CLI_BINARY
+from .host import APP_BINARY, CLI_BINARY, probe
 
 # Environment variables the adapter honours, reported so a stale setting is
 # visible next to the binaries it overrides.
@@ -70,11 +71,7 @@ def _check_control_file() -> dict[str, Any]:
 
 def doctor_report() -> dict[str, Any]:
     """Return the full self-check as a JSON-serialisable dict."""
-    # Resolved through the host module so a caller can replace detection at one
-    # seam; a directly imported ``probe`` would keep pointing at the original.
-    import sys
-
-    status = sys.modules[__package__ + ".host"].probe()
+    status = probe()
     checks = {
         "cli": _check_cli(status),
         "desktop_app": _check_app(status),
@@ -93,8 +90,13 @@ def doctor_report() -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the doctor from the command line."""
-    args = list(argv or [])
+    """Run the doctor from the command line.
+
+    Falls back to ``sys.argv`` so ``python -m dcc_mcp_pdfcraft.doctor --json``
+    honours its flags: the module entry point is the only real one, and
+    defaulting to an empty list would make ``--json`` a dead switch.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
     as_json = "--json" in args
     report = doctor_report()
     if as_json:

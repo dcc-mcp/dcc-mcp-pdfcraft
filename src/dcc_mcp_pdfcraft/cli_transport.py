@@ -75,7 +75,11 @@ class CliTransport:
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise CliError(f"{' '.join(command)} timed out after {self._timeout_secs}s") from exc
+            # Report the bound that actually applied: a per-call override
+            # replaces the instance default, and quoting the default would
+            # misreport why the call failed.
+            applied = self._timeout_secs if timeout_secs is None else timeout_secs
+            raise CliError(f"{' '.join(command)} timed out after {applied}s") from exc
         except OSError as exc:
             raise CliError(f"cannot run {self._binary}: {exc}") from exc
 

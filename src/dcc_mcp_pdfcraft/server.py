@@ -92,7 +92,6 @@ class PdfCraftMcpServer(DccServerBase):
         self._cli_binary = cli_binary or os.environ.get(ENV_CLI)
         self._control_file = control_file or os.environ.get(ENV_CONTROL_FILE)
         self._root = root or os.environ.get(ENV_ROOT)
-        self._control_channel: Optional[ControlChannel] = None
         self._readiness = AdapterReadinessBinder(self, dcc_ready_probe=self._host_ready)
         register_actions(self)
 
@@ -105,24 +104,19 @@ class PdfCraftMcpServer(DccServerBase):
         return find_binary("pdfcraft-cli") is not None
 
     def control_channel(self) -> ControlChannel:
-        """Return the live control channel to a running PdfCraft instance.
+        """Build a control channel to the running PdfCraft instance.
 
-        The endpoint is re-read on every call because the app picks a random
-        port each time it starts with ``--control``; caching it would point at a
-        dead port after a restart.
+        The endpoint is read on every call because the app picks a random port
+        each time it starts with ``--control``; a cached channel would point at
+        a dead port after a restart. This costs nothing: ``ControlChannel.call``
+        already opens a fresh connection and authenticates per request, so the
+        only thing rebuilt here is a port/token pair.
         """
-        if self._control_channel is None:
-            if not self._control_file:
-                raise ControlChannelUnavailable(
-                    f"no control file configured; start PdfCraft with --control <file> or set {ENV_CONTROL_FILE}"
-                )
-            endpoint = read_endpoint(self._control_file)
-            self._control_channel = ControlChannel(endpoint)
-        return self._control_channel
-
-    def invalidate_control_channel(self) -> None:
-        """Drop the cached channel so the next call re-reads the control file."""
-        self._control_channel = None
+        if not self._control_file:
+            raise ControlChannelUnavailable(
+                f"no control file configured; start PdfCraft with --control <file> or set {ENV_CONTROL_FILE}"
+            )
+        return ControlChannel(read_endpoint(self._control_file))
 
     @property
     def root(self) -> Optional[str]:
@@ -159,7 +153,6 @@ class PdfCraftMcpServer(DccServerBase):
             return super().stop(**kwargs)
         finally:
             self._host_driver.stop()
-            self.invalidate_control_channel()
 
 
 _server: Optional[PdfCraftMcpServer] = None
