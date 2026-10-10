@@ -87,8 +87,19 @@ def find_binary(binary: str) -> Path | None:
 
 
 def discover() -> HostBinaries:
-    """Locate both PdfCraft executables without invoking either of them."""
-    return HostBinaries(cli=find_binary(CLI_BINARY), app=find_binary(APP_BINARY))
+    """Locate both PdfCraft executables without invoking either of them.
+
+    Calls ``find_binary`` through the module so tests can replace detection at
+    one seam: a caller that imported ``find_binary`` directly would defeat that
+    replacement and silently hit the real filesystem.
+    """
+    import sys
+
+    module = sys.modules[__name__]
+    return HostBinaries(
+        cli=module.find_binary(CLI_BINARY),
+        app=module.find_binary(APP_BINARY),
+    )
 
 
 def cli_version(cli: Path | None = None) -> str | None:
@@ -144,6 +155,13 @@ class HostStatus:
 
 
 def probe(cli: Path | None = None) -> HostStatus:
-    """Report the host binaries and version without starting the app."""
-    binaries = discover()
-    return HostStatus(binaries=binaries, version=cli_version(cli or binaries.cli))
+    """Report the host binaries and version without starting the app.
+
+    Resolved through the module for the same reason as :func:`discover`: a
+    single replaceable seam keeps tests from touching the real environment.
+    """
+    import sys
+
+    module = sys.modules[__name__]
+    binaries = module.discover()
+    return HostStatus(binaries=binaries, version=module.cli_version(cli or binaries.cli))

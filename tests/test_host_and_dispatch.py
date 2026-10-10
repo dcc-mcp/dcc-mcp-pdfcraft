@@ -33,6 +33,7 @@ def test_discover_finds_cli_in_search_dir(monkeypatch, tmp_path):
     # the module under test rather than assuming a bare name.
     fake = tmp_path / ("pdfcraft-cli" + host._SUFFIXES[0])
     fake.write_text("", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | 0o111)
     monkeypatch.setattr(host, "_which", lambda name: None)
     monkeypatch.setattr(host, "_search_dirs", lambda: [tmp_path])
 

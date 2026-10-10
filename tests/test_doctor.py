@@ -22,15 +22,15 @@ def clean_env(monkeypatch):
     return monkeypatch
 
 
-def _no_binaries(monkeypatch, tmp_path):
+def _no_binaries(monkeypatch):
+    """Report both binaries absent, through the single detection seam."""
     from dcc_mcp_pdfcraft import host
 
-    monkeypatch.setattr(host, "_which", lambda name: None)
-    monkeypatch.setattr(host, "_search_dirs", lambda: [tmp_path])
+    monkeypatch.setattr(host, "probe", lambda *a, **k: host.HostStatus(host.HostBinaries(None, None), None))
 
 
-def test_missing_host_is_reportable_not_error(monkeypatch, tmp_path, clean_env):
-    _no_binaries(monkeypatch, tmp_path)
+def test_missing_host_is_reportable_not_error(monkeypatch, clean_env):
+    _no_binaries(monkeypatch)
 
     report = doctor.doctor_report()
 
@@ -45,11 +45,13 @@ def test_cli_only_is_usable(monkeypatch, tmp_path, clean_env):
     """The CLI alone covers every headless action, so this is not broken."""
     from dcc_mcp_pdfcraft import host
 
-    fake = tmp_path / ("pdfcraft-cli" + host._SUFFIXES[0])
-    fake.write_text("", encoding="utf-8")
-    monkeypatch.setattr(host, "_which", lambda name: None)
-    monkeypatch.setattr(host, "_search_dirs", lambda: [tmp_path])
-    monkeypatch.setattr(host, "cli_version", lambda *a, **k: None)
+    cli = tmp_path / ("pdfcraft-cli" + host._SUFFIXES[0])
+    cli.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        host,
+        "probe",
+        lambda *a, **k: host.HostStatus(host.HostBinaries(cli, None), None),
+    )
 
     report = doctor.doctor_report()
 
@@ -60,7 +62,7 @@ def test_cli_only_is_usable(monkeypatch, tmp_path, clean_env):
 
 
 def test_unset_control_file_is_not_an_error(monkeypatch, tmp_path, clean_env):
-    _no_binaries(monkeypatch, tmp_path)
+    _no_binaries(monkeypatch)
 
     check = doctor._check_control_file()
 
@@ -95,7 +97,7 @@ def test_valid_control_file_never_leaks_the_token(monkeypatch, tmp_path, clean_e
 
 
 def test_report_is_json_serializable(monkeypatch, tmp_path, clean_env):
-    _no_binaries(monkeypatch, tmp_path)
+    _no_binaries(monkeypatch)
 
     # An agent consumes this as JSON, so a non-serialisable value would fail at
     # the worst moment.
@@ -103,14 +105,14 @@ def test_report_is_json_serializable(monkeypatch, tmp_path, clean_env):
 
 
 def test_main_returns_zero_for_missing_host(monkeypatch, tmp_path, clean_env, capsys):
-    _no_binaries(monkeypatch, tmp_path)
+    _no_binaries(monkeypatch)
 
     assert doctor.main([]) == 0
     assert "missing_host" in capsys.readouterr().out
 
 
 def test_main_returns_one_for_configuration_error(monkeypatch, tmp_path, clean_env):
-    _no_binaries(monkeypatch, tmp_path)
+    _no_binaries(monkeypatch)
     path = tmp_path / "bad.json"
     path.write_text("nonsense", encoding="utf-8")
     monkeypatch.setenv("PDFCRAFT_CONTROL_FILE", str(path))
@@ -119,7 +121,7 @@ def test_main_returns_one_for_configuration_error(monkeypatch, tmp_path, clean_e
 
 
 def test_main_json_output_is_parseable(monkeypatch, tmp_path, clean_env, capsys):
-    _no_binaries(monkeypatch, tmp_path)
+    _no_binaries(monkeypatch)
 
     doctor.main(["--json"])
 

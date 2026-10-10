@@ -17,7 +17,7 @@ import os
 from typing import Any
 
 from .control_channel import ControlChannelUnavailable, read_endpoint
-from .host import APP_BINARY, CLI_BINARY, probe
+from .host import APP_BINARY, CLI_BINARY
 
 # Environment variables the adapter honours, reported so a stale setting is
 # visible next to the binaries it overrides.
@@ -70,7 +70,11 @@ def _check_control_file() -> dict[str, Any]:
 
 def doctor_report() -> dict[str, Any]:
     """Return the full self-check as a JSON-serialisable dict."""
-    status = probe()
+    # Resolved through the host module so a caller can replace detection at one
+    # seam; a directly imported ``probe`` would keep pointing at the original.
+    import sys
+
+    status = sys.modules[__package__ + ".host"].probe()
     checks = {
         "cli": _check_cli(status),
         "desktop_app": _check_app(status),
