@@ -1,0 +1,86 @@
+tools:
+  - name: pdf_info
+    description: >-
+      Return a JSON summary of one PDF document: page count, metadata, and
+      encryption state. Runs headlessly through pdfcraft-cli.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Path to the PDF file to inspect.
+      required: [path]
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: list_pdfcraft_tools
+    description: >-
+      List the tool table the installed PdfCraft publishes, with JSON Schemas.
+      Call this instead of assuming a tool exists: the table is read from the
+      host at call time and grows between upstream releases.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: list_pdfcraft_commands
+    description: List the engine command table the installed PdfCraft publishes.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: ui_screenshot
+    description: >-
+      Capture the running PdfCraft window. Requires the desktop app started with
+      `--control <file>`; fails with guidance when no instance is attached.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: true
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: ui_inspect
+    description: >-
+      Inspect the running PdfCraft UI tree. Requires the desktop app started with
+      `--control <file>`.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: true
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
