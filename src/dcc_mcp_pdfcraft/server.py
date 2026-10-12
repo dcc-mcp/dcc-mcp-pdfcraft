@@ -141,9 +141,11 @@ class PdfCraftMcpServer(DccServerBase):
 
     def start(self, **kwargs: Any) -> Any:
         self._host_driver.start()
-        self._readiness.bind_queue_dispatcher(self._host_dispatcher)
+        self._readiness = AdapterReadinessBinder.bind_queue_dispatcher(
+            self, self._host_dispatcher, dcc_ready_probe=self._host_ready
+        )
         self._readiness.mark_execution_ready()
-        self._readiness.mark_dispatcher_ready()
+        self._readiness.mark_dispatcher_ready(True)
         self._readiness.refresh_dcc_ready()
         self._readiness.publish()
         return super().start(**kwargs)
