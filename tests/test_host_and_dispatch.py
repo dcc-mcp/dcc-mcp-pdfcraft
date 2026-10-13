@@ -115,11 +115,10 @@ def test_dispatch_routes_cli_actions(tmp_path, monkeypatch, monkeypatch_env):
     assert dispatch("pdf_info", {"path": "a.pdf"})["result"] == {"pages": 2}
     assert seen["path"] == "a.pdf"
 
-    # An unrecognised action name is forwarded as a PdfCraft tool id: the tool
-    # table is owned by upstream and discovered at runtime, so the adapter must
-    # not reject names it does not know.
-    assert dispatch("page_rotate", {"degrees": 90})["result"] == {"ok": True}
-    assert seen["tool"] == "page_rotate"
+    assert dispatch("list_pdfcraft_tools")["tools"] == [{"name": "page_rotate"}]
+    assert dispatch("list_pdfcraft_commands")["commands"] == [{"id": "page.rotate"}]
+    with pytest.raises(ActionError, match="Unsupported adapter action"):
+        dispatch("page_rotate", {"degrees": 90})
 
 
 def test_dispatch_requires_path_for_pdf_info(monkeypatch):

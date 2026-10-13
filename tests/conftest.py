@@ -140,3 +140,21 @@ def control_file(tmp_path, fake_server):
     path = tmp_path / "pdfcraft.control"
     path.write_text(json.dumps({"port": fake_server.port, "token": TEST_TOKEN}), encoding="utf-8")
     yield path
+
+
+@pytest.fixture(autouse=True)
+def isolated_core_runtime(monkeypatch, tmp_path):
+    """Never discover user skills or persist telemetry/jobs while testing."""
+    for name in (
+        "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS",
+        "DCC_MCP_DISABLE_ACCUMULATED_SKILLS",
+        "DCC_MCP_DISABLE_FILE_LOGGING",
+        "DCC_MCP_DISABLE_JOB_PERSISTENCE",
+        "DCC_MCP_DISABLE_TELEMETRY",
+        "DCC_MCP_CHECKPOINT_IN_MEMORY",
+    ):
+        monkeypatch.setenv(name, "1")
+    monkeypatch.setenv("DCC_MCP_REGISTRY_DIR", str(tmp_path / "registry"))
+    monkeypatch.setenv("DCC_MCP_CORE_VERSION_CHECK", "0")
+    for name in ("DCC_MCP_SKILL_PATHS", "DCC_MCP_PDFCRAFT_SKILL_PATHS"):
+        monkeypatch.delenv(name, raising=False)

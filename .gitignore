@@ -36,3 +36,8 @@ coverage.xml
 /.serena/
 /.trae/
 /.windsurf/
+
+# Optional paired native acceptance job
+/runtime/
+/evidence/
+/filmcraft-proof/
