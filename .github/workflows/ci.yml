@@ -15,7 +15,27 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS: "1"
+  DCC_MCP_DISABLE_ACCUMULATED_SKILLS: "1"
+  DCC_MCP_DISABLE_FILE_LOGGING: "1"
+  DCC_MCP_DISABLE_JOB_PERSISTENCE: "1"
+  DCC_MCP_DISABLE_TELEMETRY: "1"
+  DCC_MCP_CHECKPOINT_IN_MEMORY: "1"
+
 jobs:
+  minimum-core:
+    name: Minimum Core 0.20.44 / Python 3.9
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - run: python -m pip install -e ".[dev]" "dcc-mcp-core==0.20.44"
+      - run: python -m pytest
+
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
@@ -48,8 +68,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
-      - run: ruff check src tests
-      - run: ruff format --check src tests
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
       # Validate a real Install SOP report, not a fixture: the report is built
       # from a live doctor run and pushed through Core's schema validator. A
       # schema that ships but never executes is how a wrong value reached a
@@ -59,3 +79,45 @@ jobs:
       - run: python -m pip install "hatchling==1.32.0" build twine
       - run: python -m build --no-isolation
       - run: python -m twine check dist/*
+
+  native-paired-workflow:
+    name: Native FilmCraft to PdfCraft MCP workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: dcc-mcp/dcc-mcp-filmcraft
+          ref: 1109592c164ebb4b124997ea2d9fd5eff7c5274c
+          path: filmcraft-proof
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install adapters and independent media/PDF validators
+        run: python -m pip install -e ".[dev]" -e ./filmcraft-proof pillow pypdf
+      - name: Install Chromium and native media validators
+        run: |
+          python -m playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg poppler-utils
+      - name: Fetch checksum-verified official runtimes
+        run: python scripts/fetch_acceptance_runtime.py
+      - name: Edit and export with real FilmCraft through MCP
+        run: >-
+          python filmcraft-proof/tests/mcp-e2e.py
+          --runtime-zip runtime/filmcraft-web-0.7.2.zip
+          --output evidence/filmcraft
+      - name: Create and independently verify PdfCraft storyboard through MCP
+        run: >-
+          python scripts/native_storyboard_acceptance.py
+          --media evidence/filmcraft/export.mp4
+          --output evidence/pdfcraft
+          --pdfcraft-cli runtime/pdfcraft-cli-0.7.1-linux-x86_64/pdfcraft-cli
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-filmcraft-pdfcraft-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn

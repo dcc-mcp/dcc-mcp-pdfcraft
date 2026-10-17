@@ -40,7 +40,7 @@ ruff format --check src tests       # format check (line-length 120, py39 target
 python -m build --no-isolation      # build wheel + sdist
 ```
 
-Tests never require PdfCraft to be installed and never reach the network. The
+The default unit tests never require PdfCraft to be installed and never reach the network. The separately named native acceptance CI job intentionally fetches hash-pinned official runtimes and verifies a real cross-app workflow. The
 control channel is exercised against an in-process fake server
 (`tests/conftest.py`), so the auth handshake and line framing are proven against
 a real socket rather than a mock.
@@ -57,7 +57,7 @@ a real socket rather than a mock.
 | `src/dcc_mcp_pdfcraft/actions.py` | Adapter-owned actions (`host_status`, `list_pdfcraft_tools`, …). |
 | `src/dcc_mcp_pdfcraft/server.py` | `DccServerBase` composition and lifecycle. |
 | `src/dcc_mcp_pdfcraft/doctor.py` | Read-only self-check. |
-| `src/dcc_mcp_pdfcraft/skills/pdfcraft-core/` | Shipped skill: `SKILL.md` + `tools.yaml` + `scripts/dispatch.py`. |
+| `src/dcc_mcp_pdfcraft/skills/pdfcraft-core/` | Shipped skill: `SKILL.md` + `tools.yaml` + fixed per-action entrypoints. |
 
 ## Conventions
 
@@ -72,3 +72,5 @@ a real socket rather than a mock.
 * The control token is a secret. Never log or echo it; the doctor reports only
   that one was present.
 * Host detection is a filesystem lookup, never a subprocess spawn.
+* The reviewed names in `batch.py` are execution policy, not a copied upstream tool catalog. Always validate arguments against live host schemas.
+* Native output publication fails closed without descriptor-relative no-follow support; do not weaken it to make a platform test pass.

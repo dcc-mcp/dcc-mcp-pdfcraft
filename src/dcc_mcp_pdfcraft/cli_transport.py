@@ -55,17 +55,16 @@ class CliTransport:
     def binary(self) -> str:
         return self._binary
 
-    def _base_args(self) -> list[str]:
-        args = [self._binary]
-        if self._root:
-            # ``--root`` sandboxes reads and writes; upstream resolves symlinks
-            # and rejects anything that escapes it.
-            args += ["--root", self._root]
-        return args
+    @property
+    def root(self) -> str | None:
+        return self._root
 
     def run(self, args: list[str], *, timeout_secs: float | None = None) -> str:
         """Run one subcommand and return its stdout, raising on a non-zero exit."""
-        command = self._base_args() + list(args)
+        command = [self._binary] + list(args)
+        # The native CLI accepts --root only on run/mcp, after the subcommand.
+        if self._root and args and args[0] in {"run", "mcp"}:
+            command += ["--root", self._root]
         try:
             completed = subprocess.run(
                 command,
@@ -106,15 +105,14 @@ class CliTransport:
 
     def commands(self) -> list[dict[str, Any]]:
         """Return the engine command table."""
-        output = self.run(["commands", "--json"])
-        payload = _parse_json(output, "commands")
-        if isinstance(payload, list):
-            return [item for item in payload if isinstance(item, dict)]
-        if isinstance(payload, dict):
-            commands = payload.get("commands")
-            if isinstance(commands, list):
-                return [item for item in commands if isinstance(item, dict)]
-        return []
+        # The current CLI has no `commands` subcommand. Its live tool table
+        # carries the engine command mapping without requiring a desktop app.
+        commands: dict[str, list[str]] = {}
+        for tool in self.tools():
+            command = tool.get("command")
+            if isinstance(command, str) and command:
+                commands.setdefault(command, []).append(tool["name"])
+        return [{"id": command, "tools": names} for command, names in sorted(commands.items())]
 
     def call_tool(self, tool: str, params: dict[str, Any] | None = None) -> Any:
         """Run one named tool through ``pdfcraft-cli run``."""
@@ -125,6 +123,10 @@ class CliTransport:
 
     def info(self, pdf: str | Path) -> dict[str, Any]:
         """Return the JSON summary of one PDF document."""
+        if self._root:
+            from .batch import confined_path
+
+            pdf = confined_path(Path(self._root).resolve(), str(pdf))
         payload = _parse_json(self.run(["info", str(pdf)]), "info")
         return payload if isinstance(payload, dict) else {"result": payload}
 

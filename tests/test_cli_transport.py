@@ -103,8 +103,9 @@ def test_root_is_forwarded(tmp_path, monkeypatch):
     stub = tmp_path / "pdfcraft-cli"
     stub.write_text("", encoding="utf-8")
 
-    CliTransport(stub, root="/work").tools()
+    CliTransport(stub, root="/work").run(["run", "--script", "steps.json"])
 
+    assert captured[0][1:4] == ["run", "--script", "steps.json"]
     assert "--root" in captured[0]
     assert captured[0][captured[0].index("--root") + 1] == "/work"
 
@@ -138,3 +139,26 @@ def test_json_is_recovered_from_surrounding_output(tmp_path):
     stub = _write_stub(tmp_path, ["opening document...", '{"pages": 3}'])
 
     assert CliTransport(stub).info("x.pdf") == {"pages": 3}
+
+
+def test_discovery_does_not_pass_unsupported_root_flag(tmp_path, monkeypatch):
+    calls = []
+    stub = tmp_path / "pdfcraft-cli"
+    stub.touch()
+
+    def fake_run(command, **kwargs):
+        import subprocess
+
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout='[{"name":"doc_open","command":"file.open"}]')
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    transport = CliTransport(stub, root=tmp_path)
+    assert transport.commands() == [{"id": "file.open", "tools": ["doc_open"]}]
+    assert calls == [[str(stub), "tools"]]
+
+
+def test_info_cannot_escape_configured_root(tmp_path):
+    stub = _echo_stub(tmp_path, "{}")
+    with pytest.raises(CliError, match="escapes"):
+        CliTransport(stub, root=tmp_path).info(tmp_path.parent / "outside.pdf")

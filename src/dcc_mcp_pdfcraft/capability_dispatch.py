@@ -15,6 +15,7 @@ nothing.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Any
 
 from .cli_transport import CliError, CliNotFound, CliTransport
@@ -36,12 +37,18 @@ UI_METHODS = {
 }
 
 
+active_server: ContextVar[Any] = ContextVar("pdfcraft_active_server", default=None)
+
+
 class ActionError(RuntimeError):
     """An action could not be completed against the host."""
 
 
 def _transport() -> CliTransport:
     """Build a CLI transport from the configured (or discovered) binary."""
+    instance = active_server.get()
+    if instance is not None:
+        return CliTransport(instance.cli_binary, root=instance.root)
     return CliTransport(cli_path(), root=root())
 
 
@@ -49,9 +56,10 @@ def _server():
     """Return the running server, which owns the control channel."""
     from . import server
 
-    if server._server is None:  # noqa: SLF001 - module-global access is the lifecycle contract
+    instance = active_server.get() or server._server
+    if instance is None:  # noqa: SLF001 - module-global access is the lifecycle contract
         raise ControlChannelUnavailable("no PdfCraft server is running")
-    return server._server
+    return instance
 
 
 def dispatch(action_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -94,14 +102,19 @@ def _dispatch_cli(action_name: str, params: dict[str, Any]) -> dict[str, Any]:
                 raise ActionError("pdf_info requires a `path` argument")
             return {"action": action_name, "result": transport.info(path)}
 
-        if action_name == "list_tools":
+        if action_name in {"list_tools", "list_pdfcraft_tools"}:
             return {"action": action_name, "tools": transport.tools()}
 
-        if action_name == "list_commands":
+        if action_name in {"list_commands", "list_pdfcraft_commands"}:
             return {"action": action_name, "commands": transport.commands()}
 
-        # Every other action name is a PdfCraft tool id, resolved against the
-        # tool table upstream publishes rather than against a local list.
-        return {"action": action_name, "result": transport.call_tool(action_name, params)}
+        if action_name == "execute_pdfcraft_batch":
+            from .batch import execute_batch
+
+            if set(params) != {"steps"}:
+                raise ActionError("execute_pdfcraft_batch requires only a steps argument")
+            return {"action": action_name, "result": execute_batch(transport, params["steps"])}
+
+        raise ActionError(f"Unsupported adapter action: {action_name}; use the reviewed batch workflow")
     except CliError as exc:
         raise ActionError(str(exc)) from exc

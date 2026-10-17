@@ -4,8 +4,8 @@ from dcc_mcp_pdfcraft.capability_dispatch import dispatch
 
 
 @skill_entry
-def main(_action_name: str = "", **params):
-    return dispatch(_action_name, params)
+def main(**params):
+    return dispatch("ui_inspect", params)
 
 
 if __name__ == "__main__":

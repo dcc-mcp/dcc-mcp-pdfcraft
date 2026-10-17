@@ -8,9 +8,10 @@ else it can do.
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any
 
-from .capability_dispatch import ActionError, dispatch
+from .capability_dispatch import ActionError, active_server, dispatch
 from .host import probe
 
 
@@ -70,12 +71,22 @@ ADAPTER_ACTIONS = {
 
 
 def register_actions(server: Any) -> None:
-    """Register the adapter-owned actions on a server instance.
+    """Attach backward-compatible Python helpers with instance configuration.
 
-    The dict is exposed as attributes so Core's skill machinery and tests can
-    reach them by name. Registration is additive: any failure to register one
-    action must not prevent the rest from being served, so each is attached in
-    its own step.
+    Core registration is performed by the shipped skill catalog. These helpers
+    are conveniences for Python callers, not substitutes for skill discovery.
     """
+
+    def bind(func):
+        @wraps(func)
+        def call(*args, **kwargs):
+            token = active_server.set(server)
+            try:
+                return func(*args, **kwargs)
+            finally:
+                active_server.reset(token)
+
+        return call
+
     for name, func in ADAPTER_ACTIONS.items():
-        setattr(server, name, func)
+        setattr(server, name, bind(func))
