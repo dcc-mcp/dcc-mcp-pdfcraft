@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
@@ -209,6 +210,41 @@ def _check_output_directory(root: Path, path: Path, descriptor: int) -> None:
         raise CliError("output parent was replaced during publication")
 
 
+def _file_identity(info: os.stat_result) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
+
+
+def _check_output_file(parent: int, name: str, descriptor: int, expected: os.stat_result) -> None:
+    for current in (os.fstat(descriptor), os.stat(name, dir_fd=parent, follow_symlinks=False)):
+        if not stat.S_ISREG(current.st_mode) or _file_identity(current) != _file_identity(expected):
+            raise CliError("native output identity changed during publication")
+        if (current.st_size, current.st_mtime_ns, current.st_ctime_ns) != (
+            expected.st_size,
+            expected.st_mtime_ns,
+            expected.st_ctime_ns,
+        ):
+            raise CliError("native output bytes changed during publication")
+
+
+def _read_output(parent: int, name: str, stack: ExitStack) -> tuple[int, os.stat_result, dict[str, Any]]:
+    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    stack.callback(os.close, descriptor)
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_OUTPUT_BYTES:
+        raise CliError("native output must be a bounded nonempty regular file")
+    digest, size = hashlib.sha256(), 0
+    while size <= MAX_OUTPUT_BYTES:
+        chunk = os.read(descriptor, min(1024 * 1024, MAX_OUTPUT_BYTES + 1 - size))
+        if not chunk:
+            break
+        size += len(chunk)
+        digest.update(chunk)
+    if size != info.st_size or size > MAX_OUTPUT_BYTES:
+        raise CliError("native output size changed or exceeded its limit")
+    _check_output_file(parent, name, descriptor, info)
+    return descriptor, info, {"bytes": size, "sha256": digest.hexdigest()}
+
+
 def execute_batch(transport: CliTransport, steps: Any) -> dict[str, Any]:
     """Validate everything, execute once, then publish only new output files.
 
@@ -248,25 +284,43 @@ def execute_batch(transport: CliTransport, steps: Any) -> dict[str, Any]:
         script.write_text(json.dumps(prepared, allow_nan=False), encoding="utf-8")
         results = _json_values(transport.run(["run", "--script", str(script)]), len(prepared))
         artifacts = []
-        for path in outputs:
-            source = Path(mapping[str(path)])
-            if not source.is_file() or source.stat().st_size > MAX_OUTPUT_BYTES:
-                raise CliError("native output is missing or exceeds the 128 MiB limit; no outputs published")
+        sources = {}
+        try:
+            for path in outputs:
+                source = Path(mapping[str(path)])
+                parent = _directory_fd(source.parent, stack)
+                descriptor, info, metadata = _read_output(parent, source.name, stack)
+                _check_output_directory(root, source, parent)
+                sources[path] = source, parent, descriptor, info, metadata
+        except (OSError, CliError) as exc:
+            raise CliError(
+                "native staged output is missing, unsafe or exceeds the 128 MiB limit; no outputs published"
+            ) from exc
         try:
             for path in outputs:
                 # Check the parent again after native execution in case it changed.
                 _check_output_directory(root, path, directory_fds[path.parent])
-                source = Path(mapping[str(path)])
-                # Hash the staged inode, never a mutable destination path.
-                metadata = {
-                    "path": str(path),
-                    "bytes": source.stat().st_size,
-                    "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                }
-                os.link(source, path.name, dst_dir_fd=directory_fds[path.parent], follow_symlinks=False)
+                source, parent, descriptor, info, metadata = sources[path]
+                _check_output_directory(root, source, parent)
+                _check_output_file(parent, source.name, descriptor, info)
+                os.link(
+                    source.name,
+                    path.name,
+                    src_dir_fd=parent,
+                    dst_dir_fd=directory_fds[path.parent],
+                    follow_symlinks=False,
+                )
+                # Record the new name before any post-link check can fail.
                 published.append(str(path))
                 _check_output_directory(root, path, directory_fds[path.parent])
-                artifacts.append(metadata)
+                target_fd, target_info, readback = _read_output(directory_fds[path.parent], path.name, stack)
+                if _file_identity(target_info) != _file_identity(info) or readback != metadata:
+                    raise CliError("published output does not match the verified staged file")
+                _check_output_directory(root, source, parent)
+                _check_output_directory(root, path, directory_fds[path.parent])
+                _check_output_file(parent, source.name, descriptor, target_info)
+                _check_output_file(directory_fds[path.parent], path.name, target_fd, target_info)
+                artifacts.append({"path": str(path), **metadata})
         except (OSError, CliError) as exc:
             raise CliError(f"output publication failed; do not retry; published outputs: {published}") from exc
         return {"steps": _restore_paths(results, {value: key for key, value in mapping.items()}), "outputs": artifacts}

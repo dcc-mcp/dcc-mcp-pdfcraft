@@ -303,3 +303,72 @@ def test_publication_detects_replaced_directory_without_symlink(transport, tmp_p
         execute_batch(transport, [step("doc_save", doc=1, path=str(output_dir / "moved.pdf"))])
     assert not (output_dir / "moved.pdf").exists()
     assert (tmp_path / "original-output" / "moved.pdf").read_bytes() == b"%PDF-test"
+
+
+@requires_secure_publication
+def test_staged_output_symlink_is_rejected_without_reading_its_target(transport, tmp_path, monkeypatch):
+    import os
+
+    outside = tmp_path.parent / (tmp_path.name + "-outside.pdf")
+    outside.write_bytes(b"private outside bytes")
+    original_read = Path.read_bytes
+    original_descriptor_read = os.read
+    outside_info = outside.stat()
+
+    def reject_descriptor_read(descriptor, size):
+        current = os.fstat(descriptor)
+        if (current.st_dev, current.st_ino) == (outside_info.st_dev, outside_info.st_ino):
+            raise AssertionError("publication read an outside file descriptor")
+        return original_descriptor_read(descriptor, size)
+
+    def reject_target_read(path):
+        if path.is_symlink() or path == outside:
+            raise AssertionError("publication followed the staged output symlink")
+        return original_read(path)
+
+    def replace_output():
+        source = Path(transport.calls[0][0]["args"]["path"])
+        source.unlink()
+        source.symlink_to(outside)
+
+    transport.before_return = replace_output
+    monkeypatch.setattr(Path, "read_bytes", reject_target_read)
+    monkeypatch.setattr(os, "read", reject_descriptor_read)
+    with pytest.raises(CliError, match="staged output"):
+        execute_batch(transport, [step("doc_save", doc=1, path="new.pdf")])
+    assert not (tmp_path / "new.pdf").exists()
+    assert not (tmp_path / "new.pdf").is_symlink()
+    assert original_read(outside) == b"private outside bytes"
+    assert len(transport.calls) == 1
+
+
+@requires_secure_publication
+@pytest.mark.parametrize("replacement", ["file", "symlink", "same_inode"])
+def test_changed_publication_source_cannot_return_success(transport, tmp_path, monkeypatch, replacement):
+    import os
+
+    original_link = os.link
+    target = tmp_path / "new.pdf"
+
+    def replace_then_link(source, name, **kwargs):
+        source_path = Path(transport.calls[0][0]["args"]["path"])
+        if replacement == "same_inode":
+            original_link(source, name, **kwargs)
+            source_path.write_bytes(b"changed after source hashing")
+            return
+        source_path.unlink()
+        if replacement == "symlink":
+            source_path.symlink_to(tmp_path / "referent.pdf")
+        else:
+            source_path.write_bytes(b"replacement native output")
+        return original_link(source, name, **kwargs)
+
+    (tmp_path / "referent.pdf").write_bytes(b"preserve referent")
+    monkeypatch.setattr(os, "link", replace_then_link)
+    monkeypatch.setattr(batch, "secure_publication_supported", lambda: True)
+    with pytest.raises(CliError, match="publication failed; do not retry") as error:
+        execute_batch(transport, [step("doc_save", doc=1, path=str(target))])
+    assert str(target) in str(error.value)
+    assert target.exists() or target.is_symlink()
+    assert (tmp_path / "referent.pdf").read_bytes() == b"preserve referent"
+    assert len(transport.calls) == 1
