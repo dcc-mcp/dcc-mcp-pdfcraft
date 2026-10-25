@@ -4,7 +4,7 @@ This original calibration study is titled **Time, held twice**. Its two-page lay
 
 ## What actually runs
 
-1. The pinned FilmCraft adapter opens the official browser build in an owned Chromium page. Genuine MCP calls create/import/edit a project, apply 50% speed, save and reopen `.fcproj`, and export native H.264/AAC MP4 and WAV.
+1. The paired job now targets the official FilmCraft native CLI in one owned persistent process. Genuine MCP calls create/import/edit a project, apply 50% speed, save and reopen `.fcproj`, and export native H.264/AAC MP4 and WAV. This path needs no browser or desktop window.
 2. FFmpeg extracts output frames 0, 10 and 22. It performs extraction only; it does not author the PDF or replace FilmCraft's export.
 3. A genuine MCP HTTP client initializes the PdfCraft Core server, loads `pdfcraft-core`, discovers the host schemas and invokes `execute_pdfcraft_batch`.
 4. One PdfCraft CLI engine session runs 47 operations: create two pages, add native text/images, edit metadata, undo/redo, save, close, reopen, inspect and render both pages. A separate invocation reads the saved PDF's metadata.
@@ -14,18 +14,25 @@ This proves **native CLI/Core MCP integration** for PdfCraft. It does not establ
 
 ## Reproduce on Linux
 
-The CI workflow `native-paired-workflow` contains the complete paired run. It checks out FilmCraft adapter commit `1109592c164ebb4b124997ea2d9fd5eff7c5274c`, not a moving branch. Runtime archives come from official `storytold` GitHub releases and are SHA-256 checked before extraction/use. Installation is opt-in; the adapter never downloads a host on a user's behalf.
+The CI workflow `native-paired-workflow` contains the complete paired run. Its current qualification target uses FilmCraft adapter fixture commit `b2109ba45833438aadea935401e536dc6f74bc0e`, not a moving branch. This is reviewed draft source used as an acceptance fixture, not a released dependency or a claim that its publishing workflow is enabled. FilmCraft's helper pins its official native v0.12.0 archive and CLI. PdfCraft's helper independently pins the official [v0.13.0 CLI archive](https://github.com/storytold/pdfcraft/releases/tag/v0.13.0), release source `53199fb4fa36f3c95b539add6218c57aeb2f823c`:
+
+- Archive SHA-256: `fd40f80157856cadd4348a464ef0acde8f19894d831d78e9823708ecf70a3352`, matching both the release API and `SHA256SUMS.txt`.
+- Extracted CLI SHA-256: `2283260fc06a2cadc32c2836fcdd29ed2996418ab3c03291e01a3d20328d157e`.
+
+The helper validates the archive layout and extracts only that executable. It never runs it. The previous qualified baseline was PdfCraft CLI v0.7.1 and FilmCraft Web/WASM v0.7.2 at adapter `1109592c164ebb4b124997ea2d9fd5eff7c5274c`. The current target needs the actual native job's successful result before being described as qualified. These pins are reproducible fixtures, not adapter runtime version restrictions; tool schemas still come from the live CLI. Downloads are opt-in; the adapter never installs a host on a user's behalf.
 
 ```bash
 python -m pip install -e ".[dev]" -e ./filmcraft-proof pillow pypdf
-python -m playwright install --with-deps chromium
 # Install ffmpeg and poppler-utils through your normal OS package manager.
 python scripts/fetch_acceptance_runtime.py
+(cd filmcraft-proof && python scripts/fetch-native-runtime.py)
 python filmcraft-proof/tests/mcp-e2e.py \
-  --runtime-zip runtime/filmcraft-web-0.7.2.zip --output evidence/filmcraft
+  --mode native --native-cli filmcraft-proof/runtime/filmcraft-cli \
+  --output evidence/filmcraft
 python scripts/native_storyboard_acceptance.py \
   --media evidence/filmcraft/export.mp4 --output evidence/pdfcraft \
-  --pdfcraft-cli runtime/pdfcraft-cli-0.7.1-linux-x86_64/pdfcraft-cli
+  --pdfcraft-cli runtime/pdfcraft-cli-0.13.0-linux-x86_64/pdfcraft-cli \
+  --filmcraft-head b2109ba45833438aadea935401e536dc6f74bc0e
 ```
 
 The output directory must be new. Results include `filmcraft-pdfcraft-storyboard.pdf`, native and independent PNG renders, extracted frames, source MP4, requested steps, actual MCP results and `mcp-report.json`. GitHub Actions retains the full paired evidence for 14 days. Archive it separately if longer retention is needed.

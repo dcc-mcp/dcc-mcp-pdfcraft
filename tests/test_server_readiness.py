@@ -3,6 +3,33 @@
 from dcc_mcp_pdfcraft import server as server_module
 
 
+def test_external_service_has_standalone_identity_and_disabled_secondary_listener(monkeypatch, tmp_path):
+    captured = []
+    original = server_module.DccServerOptions.from_env
+
+    def capture(*args, **kwargs):
+        options = original(*args, **kwargs)
+        captured.append(options)
+        return options
+
+    monkeypatch.setattr(server_module.DccServerOptions, "from_env", capture)
+    instance = server_module.PdfCraftMcpServer(
+        registry_dir=str(tmp_path / "registry"),
+        enable_gateway_failover=False,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_checkpoint_persistence=False,
+        enable_telemetry=False,
+    )
+    try:
+        assert captured[0].instance_type == "standalone"
+        assert captured[0].gateway.remote_host == "127.0.0.1"
+        # Core defines zero as disabled, not an OS-assigned secondary port.
+        assert captured[0].gateway.remote_port == 0
+    finally:
+        instance.stop()
+
+
 def test_start_uses_real_core_readiness_contract(monkeypatch, tmp_path):
     monkeypatch.setattr(server_module.PdfCraftMcpServer, "_host_ready", lambda self: True)
     calls = []
@@ -69,6 +96,7 @@ def test_real_http_catalog_dispatch_and_shutdown(monkeypatch, tmp_path):
 
     binary = tmp_path / "configured-cli"
     binary.touch()
+    binary.chmod(binary.stat().st_mode | 0o111)
     seen = []
 
     def tools(transport):

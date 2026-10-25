@@ -18,7 +18,7 @@ from .actions import register_actions
 from .capability_dispatch import active_server
 from .control_channel import ControlChannel, ControlChannelUnavailable, read_endpoint
 from .env import ENV_CLI, ENV_CONTROL_FILE, ENV_ROOT
-from .host import discover, find_binary
+from .host import discover
 
 # PdfCraft is driven from an external process, so the adapter owns no port of
 # its own by default and lets Core pick one.
@@ -47,6 +47,8 @@ class PdfCraftMcpServer(DccServerBase):
         port: Optional[int] = None,
         *,
         gateway_port: Optional[int] = None,
+        gateway_remote_host: str = "127.0.0.1",
+        gateway_remote_port: int = 0,  # Core: disable the optional secondary listener.
         registry_dir: Optional[str] = None,
         enable_gateway_failover: bool = True,
         strict_gateway: bool = False,
@@ -77,8 +79,11 @@ class PdfCraftMcpServer(DccServerBase):
             port=DEFAULT_PORT if port is None else port,
             server_name="dcc-mcp-pdfcraft",
             server_version=__version__,
+            instance_type="standalone",
             execution_bridge=execution_bridge,
             gateway_port=gateway_port,
+            gateway_remote_host=gateway_remote_host,
+            gateway_remote_port=gateway_remote_port,
             registry_dir=registry_dir,
             enable_gateway_failover=enable_gateway_failover,
             strict_gateway=strict_gateway,
@@ -92,7 +97,7 @@ class PdfCraftMcpServer(DccServerBase):
         )
         super().__init__(options)
 
-        self._cli_binary = cli_binary or os.environ.get(ENV_CLI)
+        self._cli_binary = cli_binary if cli_binary is not None else os.environ.get(ENV_CLI)
         self._control_file = control_file or os.environ.get(ENV_CONTROL_FILE)
         self._root = root or os.environ.get(ENV_ROOT)
         self._readiness = AdapterReadinessBinder(self, dcc_ready_probe=self._host_ready)
@@ -111,9 +116,7 @@ class PdfCraftMcpServer(DccServerBase):
 
     def _host_ready(self) -> bool:
         """Report whether any PdfCraft entry point is usable right now."""
-        if self._cli_binary:
-            return Path(self._cli_binary).is_file()
-        return find_binary("pdfcraft-cli") is not None
+        return discover(cli=self._cli_binary).cli is not None
 
     def control_channel(self) -> ControlChannel:
         """Build a control channel to the running PdfCraft instance.
@@ -140,10 +143,12 @@ class PdfCraftMcpServer(DccServerBase):
 
     def host_status(self) -> dict[str, Any]:
         """Describe the detected host binaries for diagnostics."""
-        binaries = discover()
+        binaries = discover(cli=self._cli_binary)
         return {
             "cli": str(binaries.cli) if binaries.cli else None,
             "app": str(binaries.app) if binaries.app else None,
+            "cli_source": binaries.cli_source,
+            "configuration_error": binaries.configuration_error,
             "configured_cli": self._cli_binary,
             "control_file": self._control_file,
             "root": self._root,

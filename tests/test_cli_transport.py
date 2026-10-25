@@ -102,6 +102,7 @@ def test_root_is_forwarded(tmp_path, monkeypatch):
     monkeypatch.setattr("subprocess.run", fake_run)
     stub = tmp_path / "pdfcraft-cli"
     stub.write_text("", encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
     CliTransport(stub, root="/work").run(["run", "--script", "steps.json"])
 
@@ -122,6 +123,7 @@ def test_call_tool_encodes_json_values(tmp_path, monkeypatch):
     monkeypatch.setattr("subprocess.run", fake_run)
     stub = tmp_path / "pdfcraft-cli"
     stub.write_text("", encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
     result = CliTransport(stub).call_tool("page_rotate", {"pages": [1, 3], "degrees": 90})
 
@@ -145,6 +147,7 @@ def test_discovery_does_not_pass_unsupported_root_flag(tmp_path, monkeypatch):
     calls = []
     stub = tmp_path / "pdfcraft-cli"
     stub.touch()
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
     def fake_run(command, **kwargs):
         import subprocess

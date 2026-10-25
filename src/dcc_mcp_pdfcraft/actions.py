@@ -29,8 +29,11 @@ def host_status() -> dict[str, Any]:
     Safe to call when PdfCraft is absent: a missing host is a reportable state,
     not a failure, so an agent can distinguish "not installed" from "broken".
     """
-    status = probe()
-    return _envelope({"available": status.cli_available, "detail": status.describe()})
+    instance = active_server.get()
+    status = probe(cli=instance.cli_binary if instance is not None else None)
+    return _envelope(
+        {"available": status.cli_available, "detail": status.describe(), "cli_location_hint": status.location_hint()}
+    )
 
 
 def list_pdfcraft_tools() -> dict[str, Any]:
