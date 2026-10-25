@@ -26,9 +26,17 @@ What it deliberately does **not** do is reimplement PdfCraft's command set. Tool
 
 ## Installation
 
+PyPI publication is not yet confirmed. For a reviewed source checkout:
+
 ```bash
-pip install dcc-mcp-pdfcraft
+python -m pip install .
 ```
+
+PdfCraft has no embedded Python. Select the interpreter through the existing
+DCC-MCP Runtime/launcher configuration; this adapter does not install or switch
+a shared Python runtime. The current draft retains version 0.2.0 but differs
+from tag `v0.2.0`; it must not replace that tag's artifacts under the same
+published version. A future release needs its own reviewed version/source.
 
 Verify the host is reachable:
 
@@ -63,6 +71,15 @@ Use dcc-mcp to summarize contract.pdf.
 | `PDFCRAFT_CLI` | Path to `pdfcraft-cli` when it is not on `PATH` |
 | `PDFCRAFT_CONTROL_FILE` | Path to the file written by `pdfcraft --control <file>`; enables UI actions |
 | `PDFCRAFT_ROOT` | Existing document directory; required for native batches and forwarded as `run --root` |
+| `PDFCRAFT_LAUNCHER_DATA` | Optional absolute path to an existing Craft Launcher data directory |
+
+CLI selection consistently prefers an explicit constructor path, then
+`PDFCRAFT_CLI`, PATH, official Craft Launcher native location hints and platform
+installation directories. An invalid configured path is reported rather than
+silently replaced. Status, doctor and actual calls use the same path resolution.
+Launcher discovery reads a bounded `installed.json`; it does not install,
+update, unpack AppImages or prove binary provenance. Filesystem discovery does
+not execute a host; the separate version probe invokes the selected CLI.
 
 ### Headless and live-UI paths
 
@@ -73,6 +90,12 @@ pdfcraft --control /path/to/control.json
 ```
 
 PdfCraft then listens on a random loopback port and writes that port and an auth token into the file. Point `PDFCRAFT_CONTROL_FILE` at it. The port is random per start, so the adapter re-reads the file on each call — there is no fixed port to collide on, which matters because the sibling Craft apps all use loopback control channels too.
+
+The external adapter service is explicitly registered as `standalone`, with no
+bound desktop PID. Its lifetime is independent of an optional editor window.
+The secondary gateway listener defaults to loopback and an OS-selected port.
+Location hints and a configured control file do not establish a live GUI
+connection or grant desktop access.
 
 ## Native document workflows through Core MCP
 
@@ -87,6 +110,30 @@ Native batch **file publication requires POSIX descriptor-relative, no-follow su
 ### FilmCraft → PdfCraft showcase
 
 [Time, held twice](docs/native-storyboard.md) takes three frames from a real, half-speed FilmCraft MP4 and makes an editable two-page PdfCraft review sheet. The opt-in CI job recreates both applications' work through MCP, saves and reopens the native documents, and uploads the PDF, previews and machine-readable evidence. Independent checks compare every embedded frame pixel and render the resulting PDF with Poppler.
+
+The current native CI fixtures target official FilmCraft 0.12.0 and PdfCraft
+0.13.0. Their archive and executable hashes are checked before execution; these
+pins are acceptance provenance, not an exact-version restriction on users.
+The older browser fixture is documented as historical evidence separately.
+
+### PhotoCraft / FilmCraft → PdfCraft asset handoff
+
+The [asset contract](docs/asset-handoff-contract.md) reuses two already qualified
+PhotoCraft 0.15.1 RGB/RGBA test images and a frame decoded from the actual
+FilmCraft export. It saves a three-page native PDF, then opens and renders it in
+a second fresh native batch. Independent checks inspect PDF geometry, numeric
+RGB image data, alpha soft-mask bytes and white-composited previews. Original
+fixtures and their producer hashes are retained; the PhotoCraft producer and
+the existing Nuke tests are not rerun by this case.
+
+Untagged RGB remains DeviceRGB; this does not establish ICC assignment, OCIO or
+scene-linear processing. The report distinguishes PDF soft-mask preservation
+from the renderer's opaque white background. It does not establish a complete
+multi-consumer contract or native desktop control.
+
+The optional `scripts/native_readback.py` can verify a hash-selected official
+CLI through real Core MCP without publishing files. This separate read-only
+path works on Windows; Windows native output publication remains unavailable.
 
 ## Host maturity
 

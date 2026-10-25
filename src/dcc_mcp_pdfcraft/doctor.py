@@ -22,10 +22,16 @@ from .host import APP_BINARY, CLI_BINARY, probe
 
 # Environment variables the adapter honours, reported so a stale setting is
 # visible next to the binaries it overrides.
-ENV_VARS = ("PDFCRAFT_CLI", "PDFCRAFT_CONTROL_FILE", "PDFCRAFT_ROOT")
+ENV_VARS = ("PDFCRAFT_CLI", "PDFCRAFT_CONTROL_FILE", "PDFCRAFT_ROOT", "PDFCRAFT_LAUNCHER_DATA")
 
 
 def _check_cli(status: Any) -> dict[str, Any]:
+    if status.configuration_error:
+        return {
+            "status": "error",
+            "detail": status.configuration_error,
+            "remediation": "Fix PDFCRAFT_CLI; invalid explicit configuration does not select another executable.",
+        }
     if status.cli_available:
         return {
             "status": "ok",
@@ -85,6 +91,7 @@ def doctor_report() -> dict[str, Any]:
         "status": "error" if errors else ("ok" if status.cli_available else "missing_host"),
         "headless_ready": status.cli_available,
         "ui_ready": status.app_available and checks["control_file"]["status"] == "ok",
+        "cli_location_hint": status.location_hint(),
         "checks": checks,
     }
 

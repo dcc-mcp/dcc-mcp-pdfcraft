@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .host import CLI_BINARY, find_binary
+from .host import resolve_cli_path
 
 DEFAULT_TIMEOUT_SECS = 120.0
 
@@ -41,7 +41,7 @@ class CliTransport:
         root: str | Path | None = None,
         timeout_secs: float = DEFAULT_TIMEOUT_SECS,
     ) -> None:
-        resolved = Path(binary) if binary is not None else find_binary(CLI_BINARY)
+        resolved = resolve_cli_path(Path(binary) if binary is not None else None)
         # An explicitly configured path is checked too: a stale PDFCRAFT_CLI
         # should fail here with a clear message rather than surfacing as an
         # opaque subprocess spawn error on the first tool call.

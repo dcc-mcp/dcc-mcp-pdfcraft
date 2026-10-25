@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "source": "Original procedural test graphics; no third-party image inputs",
+  "license": "MIT",
+  "producer": {
+    "repository": "dcc-mcp/dcc-mcp-photocraft",
+    "adapter_commit": "60e61b714ca5b067eeaaa79ca8f54ded686b990c",
+    "runtime": "PhotoCraft v0.15.1 Linux native CLI",
+    "ci_run": "https://github.com/dcc-mcp/dcc-mcp-photocraft/actions/runs/40140011077",
+    "report_sha256": "92c3e0c078a1af08c52d5cd5dfc51615fc7fa1d15ff64e05dc311ae5d404904b",
+    "reused_not_rerun": true
+  },
+  "files": [
+    {
+      "producer_artifact": "13-restored.png",
+      "bytes": 17967,
+      "sha256": "c7d2ba3e225f71e5a3214bbc1b6b235960dde523f8fcaa1375bcf7bdefe8b752",
+      "mode": "RGB",
+      "width": 960,
+      "height": 640,
+      "decoded_pixel_sha256": "2942240541f99aa4577da37fec14f743e2ab7c85ccabb0d70f053818e335adf0",
+      "profile_keys": [
+        "dpi"
+      ],
+      "role": "rgb",
+      "name": "rgb.png"
+    },
+    {
+      "producer_artifact": "alpha-roundtrip.png",
+      "bytes": 480,
+      "sha256": "3ad84ebdafac9dd036f08b24d669387d5de72da26f7b677d4026db4466eea7ff",
+      "mode": "RGBA",
+      "width": 96,
+      "height": 64,
+      "decoded_pixel_sha256": "6194300e6ecdb451a2784b28ab601e07bddb91a3dda410b6846f4c4b927240a3",
+      "profile_keys": [
+        "dpi"
+      ],
+      "role": "rgba",
+      "name": "rgba.png"
+    }
+  ]
+}

@@ -20,6 +20,9 @@ ENV_CONTROL_FILE = "PDFCRAFT_CONTROL_FILE"
 # Optional sandbox root forwarded to ``pdfcraft-cli --root``.
 ENV_ROOT = "PDFCRAFT_ROOT"
 
+# Optional absolute portable data root for read-only Craft Launcher hints.
+ENV_LAUNCHER_DATA = "PDFCRAFT_LAUNCHER_DATA"
+
 
 def cli_path() -> str | None:
     """Return the configured CLI path, or ``None`` to fall back to discovery."""

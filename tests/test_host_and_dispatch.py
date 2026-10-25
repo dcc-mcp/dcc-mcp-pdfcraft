@@ -36,6 +36,7 @@ def test_discover_finds_cli_in_search_dir(monkeypatch, tmp_path):
     fake.chmod(fake.stat().st_mode | 0o111)
     monkeypatch.setattr(host, "_which", lambda name: None)
     monkeypatch.setattr(host, "_search_dirs", lambda: [tmp_path])
+    monkeypatch.setattr(host, "cli_version", lambda *args, **kwargs: None)
 
     assert host.discover().cli is not None
     assert host.probe().cli_available is True

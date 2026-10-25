@@ -26,7 +26,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_status() -> int:
     status = probe()
-    print(json.dumps({"available": status.cli_available, "detail": status.describe()}, indent=2))
+    print(
+        json.dumps(
+            {
+                "available": status.cli_available,
+                "detail": status.describe(),
+                "cli_location_hint": status.location_hint(),
+            },
+            indent=2,
+        )
+    )
     return 0 if status.cli_available else 1
 
 

@@ -1,66 +1,96 @@
-"""Opt-in, hash-pinned official runtimes for the cross-app acceptance job only."""
+"""Opt-in, hash-pinned official PdfCraft CLI for native acceptance only."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import tarfile
 from pathlib import Path, PurePosixPath
 from urllib.request import urlopen
 
-RUNTIMES = {
-    "filmcraft-web-0.7.2.zip": (
-        "https://github.com/storytold/filmcraft/releases/download/v0.7.2/filmcraft-web-0.7.2.zip",
-        "48d4f48728fa6b5c028612a4b7f59a5832ff38d430c6a7bd417a2c77d75ae4f9",
-        20 * 1024 * 1024,
-    ),
-    "pdfcraft-cli-0.7.1-linux-x86_64.tar.gz": (
-        "https://github.com/storytold/pdfcraft/releases/download/v0.7.1/pdfcraft-cli-0.7.1-linux-x86_64.tar.gz",
-        "1916000d20b1a5252f631e148ffcfed8e5c178e9b5c0cf67da864d2cc33ca00b",
-        40 * 1024 * 1024,
-    ),
-}
+RUNTIME_DIRECTORY = "pdfcraft-cli-0.13.0-linux-x86_64"
+ARCHIVE_NAME = RUNTIME_DIRECTORY + ".tar.gz"
+URL = "https://github.com/storytold/pdfcraft/releases/download/v0.13.0/" + ARCHIVE_NAME
+ARCHIVE_SHA256 = "fd40f80157856cadd4348a464ef0acde8f19894d831d78e9823708ecf70a3352"
+CLI_SHA256 = "2283260fc06a2cadc32c2836fcdd29ed2996418ab3c03291e01a3d20328d157e"
+CLI_MEMBER = RUNTIME_DIRECTORY + "/pdfcraft-cli"
+MAX_ARCHIVE = 40 * 1024 * 1024
+MAX_UNPACKED = 100 * 1024 * 1024
+
+
+def verified_archive(path: Path) -> bytes:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_ARCHIVE:
+        raise ValueError("official runtime archive must be a bounded regular file")
+    data = path.read_bytes()
+    if len(data) > MAX_ARCHIVE or hashlib.sha256(data).hexdigest() != ARCHIVE_SHA256:
+        raise ValueError("official PdfCraft archive SHA-256 mismatch")
+    return data
+
+
+def extract_cli(archive: Path, destination: Path) -> Path:
+    """Inspect the verified archive, then publish only its pinned CLI file."""
+    data = verified_archive(archive)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as bundle:
+        members = bundle.getmembers()
+        if len(members) > 50 or sum(member.size for member in members) > MAX_UNPACKED:
+            raise ValueError("unexpected official CLI archive size")
+        if len({member.name for member in members}) != len(members):
+            raise ValueError("duplicate official runtime archive member")
+        for member in members:
+            path = PurePosixPath(member.name)
+            if (
+                "\\" in member.name
+                or path.is_absolute()
+                or not path.parts
+                or path.parts[0] != RUNTIME_DIRECTORY
+                or ".." in path.parts
+            ):
+                raise ValueError("unsafe official runtime archive path")
+            if not member.isfile() and not member.isdir():
+                raise ValueError("runtime archive links/special files are unsupported")
+        member = bundle.getmember(CLI_MEMBER)
+        if not member.isfile() or member.size > MAX_UNPACKED:
+            raise ValueError("unexpected official CLI archive member")
+        stream = bundle.extractfile(member)
+        if stream is None:
+            raise ValueError("official CLI is missing from archive")
+        binary = stream.read(member.size + 1)
+    if len(binary) != member.size or hashlib.sha256(binary).hexdigest() != CLI_SHA256:
+        raise ValueError("official PdfCraft executable SHA-256 mismatch")
+    if destination.is_symlink():
+        raise ValueError("refusing a symbolic-link CLI destination")
+    if destination.exists():
+        if not destination.is_file() or hashlib.sha256(destination.read_bytes()).hexdigest() != CLI_SHA256:
+            raise ValueError("existing CLI destination differs from the pinned executable")
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("xb") as output:
+        output.write(binary)
+    destination.chmod(0o755)
+    return destination
+
+
+def fetch_runtime(directory: Path) -> Path:
+    root = directory.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    archive = root / ARCHIVE_NAME
+    if not archive.exists() and not archive.is_symlink():
+        with urlopen(URL, timeout=120) as response:
+            data = response.read(MAX_ARCHIVE + 1)
+        if len(data) > MAX_ARCHIVE or hashlib.sha256(data).hexdigest() != ARCHIVE_SHA256:
+            raise ValueError("official PdfCraft download size/hash mismatch")
+        with archive.open("xb") as output:
+            output.write(data)
+    return extract_cli(archive, root / RUNTIME_DIRECTORY / "pdfcraft-cli")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, default=Path("runtime"))
     args = parser.parse_args()
-    root = args.directory.resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    for name, (url, sha, limit) in RUNTIMES.items():
-        path = root / name
-        if not path.exists():
-            with urlopen(url, timeout=120) as response:
-                data = response.read(limit + 1)
-            if len(data) > limit or hashlib.sha256(data).hexdigest() != sha:
-                raise ValueError("official runtime size/hash mismatch: " + name)
-            path.write_bytes(data)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != sha:
-            raise ValueError("existing runtime hash mismatch: " + name)
-    archive = root / "pdfcraft-cli-0.7.1-linux-x86_64.tar.gz"
-    with tarfile.open(archive) as bundle:
-        members = bundle.getmembers()
-        if len(members) > 50 or sum(member.size for member in members) > 100 * 1024 * 1024:
-            raise ValueError("unexpected official CLI archive size")
-        for member in members:
-            parts = PurePosixPath(member.name).parts
-            if not parts or parts[0] != "pdfcraft-cli-0.7.1-linux-x86_64" or ".." in parts:
-                raise ValueError("unsafe runtime archive path")
-            if not member.isfile() and not member.isdir():
-                raise ValueError("runtime archive links/special files are unsupported")
-            target = root.joinpath(*parts)
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                stream = bundle.extractfile(member)
-                if stream is None:
-                    raise ValueError("unreadable runtime member")
-                target.write_bytes(stream.read(member.size + 1))
-                if target.name == "pdfcraft-cli":
-                    target.chmod(0o755)
-    print("Official FilmCraft browser ZIP and native PdfCraft CLI verified.")
+    fetch_runtime(args.directory)
+    print("Official PdfCraft archive and extracted CLI SHA-256 verified; no runtime was executed.")
 
 
 if __name__ == "__main__":

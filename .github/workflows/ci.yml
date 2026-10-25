@@ -89,31 +89,43 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: dcc-mcp/dcc-mcp-filmcraft
-          ref: 1109592c164ebb4b124997ea2d9fd5eff7c5274c
+          ref: b2109ba45833438aadea935401e536dc6f74bc0e
           path: filmcraft-proof
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install adapters and independent media/PDF validators
         run: python -m pip install -e ".[dev]" -e ./filmcraft-proof pillow pypdf
-      - name: Install Chromium and native media validators
+      - name: Install native media validators
         run: |
-          python -m playwright install --with-deps chromium
           sudo apt-get update
           sudo apt-get install -y ffmpeg poppler-utils
-      - name: Fetch checksum-verified official runtimes
+      - name: Fetch checksum-verified official PdfCraft CLI
         run: python scripts/fetch_acceptance_runtime.py
-      - name: Edit and export with real FilmCraft through MCP
+      - name: Fetch checksum-verified official FilmCraft CLI
+        working-directory: filmcraft-proof
+        run: python scripts/fetch-native-runtime.py
+      - name: Edit and export with real native FilmCraft through MCP
         run: >-
           python filmcraft-proof/tests/mcp-e2e.py
-          --runtime-zip runtime/filmcraft-web-0.7.2.zip
+          --mode native
+          --native-cli filmcraft-proof/runtime/filmcraft-cli
           --output evidence/filmcraft
       - name: Create and independently verify PdfCraft storyboard through MCP
         run: >-
           python scripts/native_storyboard_acceptance.py
           --media evidence/filmcraft/export.mp4
           --output evidence/pdfcraft
-          --pdfcraft-cli runtime/pdfcraft-cli-0.7.1-linux-x86_64/pdfcraft-cli
+          --pdfcraft-cli runtime/pdfcraft-cli-0.13.0-linux-x86_64/pdfcraft-cli
+          --filmcraft-head b2109ba45833438aadea935401e536dc6f74bc0e
+      - name: Verify PhotoCraft and FilmCraft image assets through native PdfCraft
+        run: >-
+          python scripts/native_asset_handoff_acceptance.py
+          --media evidence/filmcraft/export.mp4
+          --output evidence/asset-handoff
+          --pdfcraft-cli runtime/pdfcraft-cli-0.13.0-linux-x86_64/pdfcraft-cli
+          --expected-cli-sha256 2283260fc06a2cadc32c2836fcdd29ed2996418ab3c03291e01a3d20328d157e
+          --filmcraft-head b2109ba45833438aadea935401e536dc6f74bc0e
       - uses: actions/upload-artifact@v4
         if: always()
         with:
