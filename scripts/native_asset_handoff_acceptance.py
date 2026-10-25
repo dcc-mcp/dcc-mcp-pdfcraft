@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -25,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_INPUT_BYTES = 16 * 1024 * 1024
 MAX_DIMENSION = 2000
 MAX_PREVIEW_MAE = 2.0
+INDEPENDENT_SCALE = 4
+INDEPENDENT_DPI = 72 * INDEPENDENT_SCALE
 TITLE = "PhotoCraft and FilmCraft - native PdfCraft asset handoff"
 COLOR_CHUNKS = {"sRGB", "gAMA", "iCCP", "cHRM", "cICP"}
 
@@ -116,6 +119,14 @@ def _default_decode(image, channels):
         require([_number(x) for x in decode] == [0.0, 1.0] * channels, "non-default PDF image Decode")
 
 
+def _pdf_flag(image, name):
+    value = _resolved(image.get(name, False))
+    # pypdf BooleanObject(False) is truthy as a Python object; use its PDF value.
+    value = getattr(value, "value", value)
+    require(type(value) is bool, "PDF boolean required for " + name)
+    return value
+
+
 def validate_image(image, expected):
     image = _resolved(image)
     require(image.get("/Subtype") == "/Image", "image XObject required")
@@ -127,7 +138,8 @@ def validate_image(image, expected):
         _number(image.get("/BitsPerComponent")) == 8 and image.get("/ColorSpace") == "/DeviceRGB",
         "untagged case requires DeviceRGB8, not an implicit profile conversion",
     )
-    require(not image.get("/ImageMask") and "/Mask" not in image, "unexpected image mask")
+    require(not _pdf_flag(image, "/ImageMask") and "/Mask" not in image, "unexpected image mask")
+    require(not _pdf_flag(image, "/Interpolate"), "pixel-grid oracle requires image Interpolate=false")
     _default_decode(image, 3)
     rgb = image.get_data()
     require(rgb == expected["rgb"], "embedded RGB bytes differ from decoded input")
@@ -148,9 +160,10 @@ def validate_image(image, expected):
             "soft-mask geometry differs",
         )
         require(
-            "/Matte" not in mask and "/Mask" not in mask and not mask.get("/ImageMask"),
+            "/Matte" not in mask and "/Mask" not in mask and not _pdf_flag(mask, "/ImageMask"),
             "unexpected soft-mask transform",
         )
+        require(not _pdf_flag(mask, "/Interpolate"), "pixel-grid oracle requires mask Interpolate=false")
         _default_decode(mask, 1)
         require(mask.get_data() == alpha, "embedded alpha plane differs from source")
         mask_hash = sha256(alpha)
@@ -183,6 +196,22 @@ def compare_preview(actual_rgba, expected_rgba, width, height, max_mae=MAX_PREVI
         "opaque": True,
         "decoded_rgb_sha256": sha256(actual),
     }
+
+
+def sample_cell_centers(actual_rgba, width, height, scale=INDEPENDENT_SCALE):
+    """Normalize a fixed 4x independent raster without filtering or edge removal."""
+    require(
+        type(width) is int and type(height) is int and width > 0 and height > 0, "positive sample dimensions required"
+    )
+    require(type(scale) is int and scale == INDEPENDENT_SCALE, "independent sampling scale must be exactly four")
+    require(len(actual_rgba) == width * height * 4 * scale * scale, "independent raster geometry differs")
+    stride = width * scale * 4
+    sampled = bytearray()
+    for y in range(height):
+        for x in range(width):
+            offset = (y * scale + 2) * stride + (x * scale + 2) * 4
+            sampled.extend(actual_rgba[offset : offset + 4])
+    return bytes(sampled)
 
 
 def record_check(report, condition, name, detail=None):
@@ -444,6 +473,18 @@ def verify_outputs(pdf, inputs, output, report):
     names = _resolved(catalog.get("/Names", {}))
     require(not any(key in names for key in ("/JavaScript", "/EmbeddedFiles")), "unexpected PDF script/attachment")
     require("/OutputIntents" not in catalog, "untagged fixture unexpectedly acquired an output profile")
+    poppler = shutil.which("pdftoppm")
+    require(poppler is not None, "the existing independent Poppler validator is required")
+    version = subprocess.run([poppler, "-v"], capture_output=True, text=True, check=True, timeout=20)
+    report["independent_renderer"] = {
+        "program": "pdftoppm",
+        "version": (version.stdout + version.stderr).splitlines()[0],
+        "executable_sha256": sha256(Path(poppler).read_bytes()),
+        "raster_dpi": INDEPENDENT_DPI,
+        "scale": INDEPENDENT_SCALE,
+        "normalization": "all cells sampled at raw pixel (4*x+2,4*y+2); no filter or edge exclusion",
+        "default_72dpi_limitation": "Poppler may interpolate images and SMask at 1x despite Interpolate=false",
+    }
     pages = []
     for index, (page, expected) in enumerate(zip(reader.pages, inputs), 1):
         require(not page.get("/Annots") and "/AA" not in page, "unexpected page annotation/action")
@@ -454,38 +495,64 @@ def verify_outputs(pdf, inputs, output, report):
         image = validate_image(next(iter(objects.values())), expected)
         subprocess.run(
             [
-                "pdftoppm",
+                poppler,
                 "-f",
                 str(index),
                 "-l",
                 str(index),
                 "-singlefile",
                 "-r",
-                "72",
+                str(INDEPENDENT_DPI),
+                "-aa",
+                "no",
+                "-aaVector",
+                "no",
                 "-png",
                 str(pdf),
-                str(output / f"independent-page-{index}"),
+                str(output / f"independent-page-{index}-4x"),
             ],
             check=True,
             timeout=60,
         )
-        previews = {}
-        for kind in ("native", "independent"):
-            with Image.open(output / f"{kind}-page-{index}.png") as rendered:
-                require(rendered.size == (expected["width"], expected["height"]), "render dimensions differ")
-                require(rendered.mode in {"RGB", "RGBA"}, "RGB/RGBA preview required")
-                previews[kind] = {
-                    "png_mode": rendered.mode,
-                    **compare_preview(
-                        rendered.convert("RGBA").tobytes(), expected["rgba"], expected["width"], expected["height"]
-                    ),
-                }
+        raw_path = output / f"independent-page-{index}-4x.png"
+        raw_size = (expected["width"] * INDEPENDENT_SCALE, expected["height"] * INDEPENDENT_SCALE)
+        with Image.open(raw_path) as independent:
+            require(independent.size == raw_size, "independent high-resolution raster geometry differs")
+            require(independent.mode in {"RGB", "RGBA"}, "independent RGB/RGBA raster required")
+            raw_rgba = independent.convert("RGBA").tobytes()
+            sampled = sample_cell_centers(raw_rgba, expected["width"], expected["height"])
+            independent_preview = {
+                "raw_png": raw_path.name,
+                "raw_png_sha256": sha256(raw_path.read_bytes()),
+                "raw_png_mode": independent.mode,
+                "raw_dimensions": list(raw_size),
+                "raw_decoded_rgba_sha256": sha256(raw_rgba),
+                "normalized_dimensions": [expected["width"], expected["height"]],
+                "sample_scale": INDEPENDENT_SCALE,
+                "sample_offset": [2, 2],
+                **compare_preview(sampled, expected["rgba"], expected["width"], expected["height"]),
+            }
+        Image.frombytes("RGBA", (expected["width"], expected["height"]), sampled).save(
+            output / f"independent-page-{index}.png"
+        )
+        with Image.open(output / f"native-page-{index}.png") as native:
+            require(native.size == (expected["width"], expected["height"]), "native render dimensions differ")
+            require(native.mode in {"RGB", "RGBA"}, "native RGB/RGBA preview required")
+            native_preview = {
+                "png_mode": native.mode,
+                **compare_preview(
+                    native.convert("RGBA").tobytes(), expected["rgba"], expected["width"], expected["height"]
+                ),
+            }
+        previews = {"native": native_preview, "independent": independent_preview}
         pages.append({"role": expected["role"], **geometry, "image": image, "previews": previews})
         record_check(report, True, f"page {index} geometry, raw RGB/alpha and both white-composite renderers")
     report["pdf_contract"] = {
         "header": "PDF-1.7",
         "pages": pages,
         "render_dpi": 72,
+        "independent_raster_dpi": INDEPENDENT_DPI,
+        "independent_normalization": "fixed 4x cell centers; every original pixel checked",
         "untagged_device_rgb": True,
         "automatic_srgb_assignment_verified": False,
         "ocio_verified": False,
@@ -522,6 +589,9 @@ def main(argv=None):
             "render_dpi": 72,
             "preview": "opaque white composite",
             "maximum_rgb_mae": MAX_PREVIEW_MAE,
+            "independent_raster_dpi": INDEPENDENT_DPI,
+            "independent_scale": INDEPENDENT_SCALE,
+            "independent_sampling": "(4*x+2,4*y+2) for every original pixel; no filtering/edge exclusion",
         },
         "producer_checks_reused_not_rerun": True,
         "full_consumer_contract_completed": False,

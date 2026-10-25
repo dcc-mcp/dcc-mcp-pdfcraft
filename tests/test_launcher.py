@@ -231,8 +231,19 @@ def test_action_uses_owning_server_constructor_path(monkeypatch, tmp_path):
 
 def test_transport_and_diagnostics_share_tilde_normalization(monkeypatch, tmp_path):
     expected = executable(tmp_path / "tools" / cli_name())
+    assert os.access(expected, os.X_OK)
     expanduser = os.path.expanduser
-    monkeypatch.setattr(os.path, "expanduser", lambda value: str(tmp_path) if value == "~" else expanduser(value))
+
+    def fixture_expanduser(value):
+        # Windows pathlib passes the home component; POSIX passes the full path.
+        if value == "~":
+            return str(tmp_path)
+        if value.startswith(("~/", "~\\")):
+            return str(tmp_path / value[2:])
+        return expanduser(value)
+
+    assert Path(fixture_expanduser("~/tools/" + cli_name())) == expected
+    monkeypatch.setattr(os.path, "expanduser", fixture_expanduser)
     configured = str(Path("~") / "tools" / cli_name())
     monkeypatch.setenv("PDFCRAFT_CLI", configured)
     monkeypatch.setattr(host, "cli_version", lambda _: None)

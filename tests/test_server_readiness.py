@@ -95,6 +95,7 @@ def test_real_http_catalog_dispatch_and_shutdown(monkeypatch, tmp_path):
 
     binary = tmp_path / "configured-cli"
     binary.touch()
+    binary.chmod(binary.stat().st_mode | 0o111)
     seen = []
 
     def tools(transport):

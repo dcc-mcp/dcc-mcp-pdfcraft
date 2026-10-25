@@ -47,9 +47,9 @@ integer dimensions.
 | PDF container | Actual `%PDF-1.7` header, three unencrypted pages, retained title; no script, launch action, form or attachment in the fixture |
 | Page geometry | `MediaBox=[0,0,width,height]`; effective CropBox identical; Rotate=0 and UserUnit=1 defaults or equivalent explicit values |
 | RGB image | One image XObject per page, original dimensions, DeviceRGB and 8 bits/component; decompressed RGB bytes exactly match the decoded source |
-| Alpha | A nonopaque RGBA input has an 8-bit DeviceGray SMask with exact original alpha bytes; opaque inputs have no SMask; no color-key Mask, altered Decode or Matte is accepted |
+| Alpha | A nonopaque RGBA input has an 8-bit DeviceGray SMask with exact original alpha bytes; opaque inputs have no SMask; no color-key Mask, altered Decode or Matte is accepted; image and SMask Interpolate must be false or absent |
 | Native preview | Original pixel dimensions, RGB/RGBA PNG with fully opaque alpha; compare against the independently computed white composite |
-| Independent preview | Poppler renders the saved PDF at 72 dpi with the same geometry and white-composite oracle |
+| Independent preview | Poppler renders at fixed 288 dpi; the center `(4*x+2,4*y+2)` of every 4×4 cell is sampled without filtering to the original pixel grid, then checked with the same white-composite oracle |
 | Integrity | Original fixtures, provenance, MP4 and staged PNG hashes remain unchanged; all output hashes are recorded |
 
 The RGB mean absolute channel-error ceiling for each rendered preview is
@@ -57,6 +57,39 @@ The RGB mean absolute channel-error ceiling for each rendered preview is
 pixel hashes are retained. A failed run is not converted to success by widening
 the threshold. Raw RGB/SMask equality and opaque rendered appearance are separate
 checks: a white preview does not itself prove alpha-plane retention.
+
+### Independent renderer sampling limitation
+
+The first actual Linux case exposed an under-specified independent raster
+reference. Its PDF RGB and SMask planes were exact, and the native 72 dpi RGBA
+page matched the white-composite oracle with MAE 0. Poppler's default 72 dpi
+render had MAE 2.957465 and maximum channel error 208. All 333 differing pixels
+were on image/alpha boundaries; all 5484 interior pixels were exact. That failed
+report and the original renders remain failed evidence, not a passing run.
+The first CI report did not record Poppler's version; new receipts record it.
+
+Poppler's Splash renderer can interpolate image and mask samples at 1× even
+when their PDF Interpolate flag is false. Its coordinate bounds include a
+`floor(upper)+1` sample, so a 96×64 page can use a 97×65 intermediate image.
+Font/vector antialias switches do not disable that image interpolation. The
+[26.07.0 Splash source](https://github.com/tsdgeos/poppler_mirror/blob/b7989c187daee307b782ac4592cddb1ae0677b76/splash/Splash.cc#L3967)
+documents the interpolation selection. This is the version-matched source
+commit, not an attestation of a binary build or the original CI installation.
+
+The corrected reference makes the sampling contract explicit: fixed 4× raster,
+Interpolate=false, then one fixed center sample per original pixel. No RGB value
+is fitted, no edge is excluded, and the MAE ceiling remains 2. The raw high
+resolution PNG, normalized PNG, dimensions, center offset, decoded pixel hashes,
+Poppler version and executable hash are retained. A data-only diagnostic using
+the already provided Poppler 26.07.0 reproduced the 72 dpi discrepancy and
+yielded MAE 0/max 0 for every pixel with the fixed 4× method. This diagnostic is
+not a Windows PdfCraft output/publication test; a new real Linux run is still
+required after the contract correction.
+
+This qualifies the specified pixel-grid comparison, not identical pixels in
+Poppler's default 72 dpi display mode or all PDF viewers. Native rendering stays
+at 72 dpi; the higher independent raster does not change the adapter's 144 dpi
+native publication ceiling or expose a new agent operation.
 
 The image-only PDF path in official PdfCraft v0.13 source uses DeviceRGB8 for
 untagged RGB/RGBA PNG, a separate DeviceGray8 soft mask for nonopaque alpha and

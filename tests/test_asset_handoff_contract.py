@@ -118,6 +118,13 @@ class ImageStream(dict):
         return self.data
 
 
+class FakeBoolean:
+    """PDF boolean objects are truthy Python objects even when their value is false."""
+
+    def __init__(self, value):
+        self.value = value
+
+
 RGB = bytes((12, 34, 56, 78, 90, 123))
 
 
@@ -207,6 +214,105 @@ def test_alpha_stream_must_have_matching_grayscale_geometry(changes):
 def test_soft_mask_decode_and_matte_are_not_silently_ignored(changes):
     with pytest.raises(REJECTED):
         contract.validate_image(rgb_image(**{"/SMask": gray_mask(**changes)}), expected(b"\x00\x80"))
+
+
+@pytest.mark.parametrize("false_flag", [False, FakeBoolean(False)])
+def test_explicit_false_pdf_flags_preserve_the_noninterpolated_image_contract(false_flag):
+    flags = {"/Interpolate": false_flag, "/ImageMask": false_flag}
+    image = rgb_image(**{**flags, "/SMask": gray_mask(**flags)})
+    contract.validate_image(image, expected(b"\x00\x80"))
+
+
+@pytest.mark.parametrize("target", ["image", "soft_mask"])
+@pytest.mark.parametrize("true_flag", [True, FakeBoolean(True)])
+def test_interpolation_in_either_plane_requires_a_different_sampling_contract(target, true_flag):
+    image_flags = {"/Interpolate": true_flag} if target == "image" else {}
+    mask_flags = {"/Interpolate": true_flag} if target == "soft_mask" else {}
+    image = rgb_image(**{**image_flags, "/SMask": gray_mask(**mask_flags)})
+    with pytest.raises(REJECTED):
+        contract.validate_image(image, expected(b"\x00\x80"))
+
+
+@pytest.mark.parametrize("target", ["image", "soft_mask"])
+def test_pdf_boolean_wrapper_cannot_hide_an_enabled_image_mask(target):
+    image_flags = {"/ImageMask": FakeBoolean(True)} if target == "image" else {}
+    mask_flags = {"/ImageMask": FakeBoolean(True)} if target == "soft_mask" else {}
+    image = rgb_image(**{**image_flags, "/SMask": gray_mask(**mask_flags)})
+    with pytest.raises(REJECTED):
+        contract.validate_image(image, expected(b"\x00\x80"))
+
+
+def test_fixed_cell_center_sampling_reads_every_channel_including_boundary_cells():
+    # Each rendered pixel identifies its own coordinate. This distinguishes the
+    # declared (2, 2) offset from averaging, corners, neighboring cells or flips.
+    rendered = bytes(channel for y in range(12) for x in range(12) for channel in (x, y, x + y, 255 - x - y))
+    centers = bytes(
+        (
+            2,
+            2,
+            4,
+            251,
+            6,
+            2,
+            8,
+            247,
+            10,
+            2,
+            12,
+            243,
+            2,
+            6,
+            8,
+            247,
+            6,
+            6,
+            12,
+            243,
+            10,
+            6,
+            16,
+            239,
+            2,
+            10,
+            12,
+            243,
+            6,
+            10,
+            16,
+            239,
+            10,
+            10,
+            20,
+            235,
+        )
+    )
+    assert contract.sample_cell_centers(rendered, 3, 3) == centers
+    assert contract.sample_cell_centers(rendered, 3, 3, scale=4) == centers
+
+
+@pytest.mark.parametrize("length", [0, 60, 63, 65, 68])
+def test_cell_center_sampling_rejects_truncated_or_extra_render_bytes(length):
+    with pytest.raises(REJECTED):
+        contract.sample_cell_centers(bytes(length), 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(bad, 1) for bad in (0, -1, True, False, 1.0, "1", None)]
+    + [(1, bad) for bad in (0, -1, True, False, 1.0, "1", None)],
+)
+def test_cell_center_sampling_requires_positive_integer_source_dimensions(width, height):
+    with pytest.raises(REJECTED):
+        contract.sample_cell_centers(bytes(64), width, height)
+
+
+@pytest.mark.parametrize(
+    ("scale", "length"),
+    [(False, 0), (True, 4), (0, 0), (-4, 64), (1, 4), (2, 16), (3, 36), (5, 100), (4.0, 64), ("4", 64), (None, 64)],
+)
+def test_cell_center_sampling_scale_is_fixed_instead_of_inferred_from_the_render(scale, length):
+    with pytest.raises(REJECTED):
+        contract.sample_cell_centers(bytes(length), 1, 1, scale=scale)
 
 
 def test_preview_compares_opaque_pdf_render_to_white_composited_source():
