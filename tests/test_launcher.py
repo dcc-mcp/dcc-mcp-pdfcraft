@@ -232,24 +232,28 @@ def test_action_uses_owning_server_constructor_path(monkeypatch, tmp_path):
 def test_transport_and_diagnostics_share_tilde_normalization(monkeypatch, tmp_path):
     expected = executable(tmp_path / "tools" / cli_name())
     assert os.access(expected, os.X_OK)
-    expanduser = os.path.expanduser
+    expanduser = Path.expanduser
+    expanded = []
 
-    def fixture_expanduser(value):
-        # Windows pathlib passes the home component; POSIX passes the full path.
+    def fixture_expanduser(path):
+        # Patch the public pathlib boundary: Python 3.9 does not delegate its
+        # home lookup to os.path.expanduser, unlike newer Python versions.
+        value = str(path)
         if value == "~":
-            return str(tmp_path)
+            return tmp_path
         if value.startswith(("~/", "~\\")):
-            return str(tmp_path / value[2:])
-        return expanduser(value)
+            expanded.append(value)
+            return tmp_path / value[2:]
+        return expanduser(path)
 
-    assert Path(fixture_expanduser("~/tools/" + cli_name())) == expected
-    monkeypatch.setattr(os.path, "expanduser", fixture_expanduser)
+    monkeypatch.setattr(Path, "expanduser", fixture_expanduser)
     configured = str(Path("~") / "tools" / cli_name())
     monkeypatch.setenv("PDFCRAFT_CLI", configured)
     monkeypatch.setattr(host, "cli_version", lambda _: None)
     assert host.probe().binaries.cli == expected.resolve()
     assert CliTransport(configured).binary == str(expected.resolve())
     assert capability_dispatch._transport().binary == str(expected.resolve())
+    assert expanded == [configured] * 3
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows executable access differs from POSIX mode bits")
