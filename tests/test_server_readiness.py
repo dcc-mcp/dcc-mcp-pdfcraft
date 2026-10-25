@@ -3,7 +3,7 @@
 from dcc_mcp_pdfcraft import server as server_module
 
 
-def test_external_service_has_standalone_identity_and_loopback_defaults(monkeypatch, tmp_path):
+def test_external_service_has_standalone_identity_and_disabled_secondary_listener(monkeypatch, tmp_path):
     captured = []
     original = server_module.DccServerOptions.from_env
 
@@ -24,6 +24,7 @@ def test_external_service_has_standalone_identity_and_loopback_defaults(monkeypa
     try:
         assert captured[0].instance_type == "standalone"
         assert captured[0].gateway.remote_host == "127.0.0.1"
+        # Core defines zero as disabled, not an OS-assigned secondary port.
         assert captured[0].gateway.remote_port == 0
     finally:
         instance.stop()

@@ -48,7 +48,7 @@ class PdfCraftMcpServer(DccServerBase):
         *,
         gateway_port: Optional[int] = None,
         gateway_remote_host: str = "127.0.0.1",
-        gateway_remote_port: int = 0,
+        gateway_remote_port: int = 0,  # Core: disable the optional secondary listener.
         registry_dir: Optional[str] = None,
         enable_gateway_failover: bool = True,
         strict_gateway: bool = False,

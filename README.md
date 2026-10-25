@@ -93,7 +93,9 @@ PdfCraft then listens on a random loopback port and writes that port and an auth
 
 The external adapter service is explicitly registered as `standalone`, with no
 bound desktop PID. Its lifetime is independent of an optional editor window.
-The secondary gateway listener defaults to loopback and an OS-selected port.
+The secondary gateway listener is disabled by default (`gateway_remote_port=0`).
+Its bind address remains loopback if an operator explicitly enables it with a
+nonzero port; this adapter does not open an additional listener automatically.
 Location hints and a configured control file do not establish a live GUI
 connection or grant desktop access.
 

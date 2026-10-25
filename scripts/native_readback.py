@@ -32,6 +32,18 @@ def minimal_pdf() -> bytes:
     return bytes(data)
 
 
+def validate_one_page_readback(doc_info, pdf_info):
+    """Reject successful native calls whose readback does not match the fixture."""
+    pages = doc_info.get("pages") if isinstance(doc_info, dict) else None
+    if not isinstance(pages, list) or len(pages) != 1:
+        raise AssertionError("doc_info must report exactly one page")
+    if not isinstance(pages[0], dict) or type(pages[0].get("page")) is not int or pages[0]["page"] != 1:
+        raise AssertionError("doc_info must identify fixture page 1")
+    count = pdf_info.get("pages") if isinstance(pdf_info, dict) else None
+    if type(count) is not int or count != 1:
+        raise AssertionError("pdf_info must report exactly one page")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pdfcraft-cli", type=Path, required=True)
@@ -127,6 +139,8 @@ def main():
         check(len(detail["steps"]) == 3 and not detail["outputs"], "three real read-only native steps completed")
         report["native_readback"] = detail
         report["fresh_info"] = client.call(name("pdf_info"), {"path": source.name})
+        validate_one_page_readback(detail["steps"][1], report["fresh_info"].get("result"))
+        check(True, "doc_info and fresh pdf_info both read back exactly one page")
         check(hashlib.sha256(source.read_bytes()).hexdigest() == before, "input PDF bytes unchanged")
         report["secure_publication_supported"] = secure_publication_supported()
         report["passed"] = True
